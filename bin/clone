@@ -1,0 +1,156 @@
+#!/bin/bash
+VERSION=1
+
+set -e
+
+usage() {
+	echo ""
+
+	cat <<USE
+Usage:
+$(basename $0) - a shell script for cloning ALL the Github repos (yes, all) in a specified Github org.
+
+All parameters can alternatively be specified using the indicated environmental variables.
+
+-t        Your Github personal access token.
+          Environmental variable: GITHUB_TOKEN
+
+-o        The Github org whose repos you want to clone.
+          Environmental variable: GITHUB_ORG
+
+-p        The protocol you wish to use to clone. Supported protocols are http(s) and ssh.
+          Note that if you specify 'http' that 'https' is assumed.
+          Environmental variable: GITHUB_PROTOCOL
+
+-d        The cloning directory - where you want all your repos cloned to. The script
+          will create a subdirectory using the org name and clone the repos in that
+          child directory.
+          Environmental variable: GITHUB_CLONE_DIR
+
+-r        For testing purposes: allows you to clone one repo from the desired org. Please
+          make sure the repo you specify exists.
+          Environmental variable: GITHUB_REPO
+
+-v        Verbose - prints additional messages to assist with troubleshooting.
+          Caution: this includes your GITHUB_TOKEN.
+
+-h        Prints this help (usage).
+USE
+}
+
+printv() {
+	if [[ -n ${VERBOSE} ]]; then
+		echo -e "$1"
+	fi
+}
+
+fail() {
+	echo ${1} >&2
+	exit 1
+}
+
+https_or_ssh() {
+	if [[ ${1} == "http" || ${1} == "https" ]]; then
+		GITHUB_URL=https://github.com/
+		printv "Cloning protocol: HTTPS"
+		printv "\tPlease note when cloning over HTTPS you may be prompted for your Github username and password (or personal access token if you have enabled 2FA)."
+	elif [[ ${1} == "ssh" ]]; then
+		GITHUB_URL=git@github.com:
+		printv "Cloning protocol: SSH"
+	else
+		fail "Invalid Github protocol supplied, must be one of: http, https, or ssh."
+	fi
+}
+
+check_parameters() {
+	if [[ -z ${GITHUB_TOKEN} ]]; then
+		echo "Please supply your Github token either via the -t flag or the GITHUB_TOKEN environmental variable."
+		ERROR=1
+	fi
+	if [[ -z ${GITHUB_ORG} ]]; then
+		echo "Please supply your Github org either via the -o flag or the GITHUB_ORG environmental variable."
+		ERROR=1
+	fi
+	if [[ -n ${ERROR} ]]; then
+		fail "Exited due to errors. To see the full usage, run \`$(basename $0) -h'"
+	fi
+	if [[ -z ${GITHUB_URL} ]]; then 
+		if [[ -n ${GITHUB_PROTOCOL} ]]; then
+			https_or_ssh ${GITHUB_PROTOCOL}
+		else
+			echo "No cloning protocol specified: assuming HTTPS."
+			echo -e "\tPlease note when cloning over HTTPS you may be prompted for your Github username and password and/or personal access token (if you have enabled 2FA)."
+			GITHUB_URL=https://github.com/
+		fi
+	fi
+	if [[ -z ${GITHUB_CLONE_DIR} ]]; then
+		echo "No cloning directory specified: assuming current working directory."
+		GITHUB_CLONE_DIR=$(pwd)
+	fi
+}
+
+while getopts ":t:o:d:p:r:vh" opt; do
+	case ${opt} in
+		t)
+			GITHUB_TOKEN=${OPTARG}
+			printv "Using Github token: ${GITHUB_TOKEN}"
+			;;
+		o)
+			GITHUB_ORG=${OPTARG}
+			printv "Cloning all repos in Github org: ${GITHUB_ORG}"
+			;;
+		d)
+			GITHUB_CLONE_DIR=${OPTARG}
+			printv "Will be cloning repos into ${GITHUB_CLONE_DIR}/${GITHUB_ORG}"
+			;;
+		p)
+			https_or_ssh ${OPTARG}
+			;;
+		r)
+			GITHUB_REPO=${OPTARG}
+			;;
+		v)
+			VERBOSE=1
+			;;
+		h)
+			usage
+			exit 0
+			;;
+		:)
+			echo "Option -${OPTARG} requires an argument." >&2
+			echo ""
+			usage
+			exit 1
+			;;
+	esac
+done
+
+check_parameters
+
+if [[ -z ${GITHUB_REPO} ]]; then
+	readarray -t GITHUB_REPOS <<<"$(curl -u ${GITHUB_TOKEN}:x-oauth-basic -s https://api.github.com/orgs/${GITHUB_ORG}/repos | jq --raw-output '.[].full_name')"
+else
+	GITHUB_REPOS=${GITHUB_ORG}/${GITHUB_REPO}
+fi
+
+echo "Making directory ${GITHUB_ORG} in ${GITHUB_CLONE_DIR}"
+mkdir -p ${GITHUB_CLONE_DIR}/${GITHUB_ORG}
+cd ${GITHUB_CLONE_DIR}/${GITHUB_ORG}
+
+echo "Cloning repositories from ${GITHUB_ORG} into ${GITHUB_CLONE_DIR}/${GITHUB_ORG}"
+echo "Depending on the size of your repositories this may take awhile. Please be patient. Perhaps grab a cup of hot chocolate or something."
+echo ""
+
+for repo in "${GITHUB_REPOS[@]}"; do
+	printv "git clone ${GITHUB_URL}${repo}.git"
+	git clone ${GITHUB_URL}${repo}.git
+	echo ""
+done
+
+cd - > /dev/null
+
+echo "Complete!"
+
+exit 0
+
+# vim:ft=bash
