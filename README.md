@@ -7,7 +7,7 @@ Clones all the repos from a specified org.
 
 ```
 sudo curl -o /usr/local/bin/gitopsclone \
-  https://raw.githubusercontent.com/anonyverse/gitops/master/bin/gitopsclone
+  https://raw.githubusercontent.com/anonyverse/gitops/master/bin/clone
 sudo chmod 0755 /usr/local/bin/gitopsclone
 ```
 
